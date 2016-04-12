@@ -19,23 +19,29 @@
 ;; DEALINGS IN THE SOFTWARE.
 
 ;;;; A module of help-related functions.
-;;;;
+
+;;;; Provides macros to retrieve the docstrings, files and linenumbers where Hy
+;;;; objects are defined. These are used to build help strings
 
 (import hy)
-(import re)
+(import pydoc)
+(import inspect)
 
-;;* Lists of keywords. These might be useful for editors too, for fontification.
+;; * Lists of keywords. These might be useful for editors too, for fontification.
 (defn hy-language-keywords []
   "Return list of functions in hy.core.language"
   (. hy core language *exports*))
+
 
 (defn hy-shadow-keywords []
   "Return list of shadowed functions"
   (. hy core shadow *exports*))
 
+
 (defn hy-macro-keywords []
   "Return list of macro keywords"
   (.keys (get hy.macros._hy_macros nil)))
+
 
 (defn hy-compiler-keywords []
   "Return a list of keywords defined in compiler.py with @build."
@@ -43,295 +49,101 @@
              (string? (get x 0))))
 
 
-;; (defmacro hylp-info [sym]
-;;   "Return Usage, docstring filename, lineno for the string SYM."
-;;   `(cond
-;;     [(in ~sym (hy-language-keywords))
-;;      (,  (.format
-;;           "({0} {1})"
-;;           ~sym
-;;           (if (hasattr (. hy core language ~(HySymbol sym)) "__code__")
-;;             (get-args
-;;              (get-code
-;;               (. hy core language ~(HySymbol sym) __code__ co_filename)
-;;               (. hy core language ~(HySymbol sym) __code__ co_firstlineno)))
-;;             "unknown args"))
-;;          (. hy core language ~(HySymbol sym) __doc__)
-;;          (if (hasattr (. hy core language ~(HySymbol sym)) "__code__")
-;;            (. hy core language ~(HySymbol sym) __code__ co_filename)
-;;            "no code")
-;;          (if (hasattr (. hy core language ~(HySymbol sym)) "__code__")
-;;            (. hy core language ~(HySymbol sym) __code__ co_firstlineno)
-;;            -1))]
-
-;;     [(in ~sym (hy-shadow-keywords))
-;;      (,  (.format "({0} {1})"
-;;                   ~sym
-;;                   (get-args
-;;                    (get-code
-;;                     (. hy core shadow ~(HySymbol sym) __code__ co_filename)
-;;                     (. hy core shadow ~(HySymbol sym) __code__ co_firstlineno))))
-;;          (. hy core shadow ~(HySymbol sym) __doc__)
-;;          (. hy core shadow ~(HySymbol sym) __code__ co_filename)
-;;          (. hy core shadow ~(HySymbol sym) __code__ co_firstlineno))]
-
-;;     [(in ~sym (hy-macro-keywords))
-;;      (, (.format "({0} {1})"
-;;                  ~sym
-;;                  (get-args
-;;                   (get-code
-;;                    (. (get hy.macros._hy_macros nil ~sym) func_code co_filename)
-;;                    (. (get hy.macros._hy_macros nil ~sym) func_code co_firstlineno))))
-;;         (. (get hy.macros._hy_macros nil ~sym)  __doc__)
-;;         (. (get hy.macros._hy_macros nil ~sym) func_code co_filename)
-;;         (. (get hy.macros._hy_macros nil ~sym) func_code co_firstlineno))]
-
-;;     [(in ~sym (.keys (hy-compiler-keywords)))
-;;      (, (.format "{0} defined in hy/compiler" ~sym)
-;;         "No docstring available."
-;;         (get (get (hy-compiler-keywords) ~sym) 0)
-;;         (get (get (hy-compiler-keywords) ~sym) 1))]
-
-;;     [(= (. (type ~(HySymbol (.replace (string sym) "-" "_"))) __name__)
-;;         "builtin_function_or_method")
-;;      (, ~sym
-;;         (. ~(HySymbol sym) __doc__)
-;;         nil
-;;         nil)]
-
-;;     ;; Not found. Maybe a regular symbol from hy? or a python func?
-;;     [true
-;;      (let [SYM ~(HySymbol (.replace (string sym) "-" "_"))]
-;;        (, ~sym
-;;           (. SYM __doc__)
-;;           (. SYM func_code co_filename)
-;;           (. SYM func_code co_firstlineno)))]))
+(defmacro get-python-object [sym]
+  "Get the Python object for the symbol SYM."
+  `(or (->> false
+            (.get hy.compiler._compile_table '~sym)
+            (.get (get hy.macros._hy_macros nil) '~sym)
+            (.get hy.core.shadow.__dict__ '~sym)
+            (.get hy.core.language.__dict__ '~sym))
+       (eval '~sym)))
 
 
-(defn hylp-info-f [sym]
-  "Return Usage, docstring filename, lineno for the string SYM."
-  (import hy)
-  (cond
-   [(in sym (hy-language-keywords))
-    (,  (.format
-         "({0} {1})"
-         sym
-         (if (hasattr
-              (eval `(. hy core language ~(HySymbol sym))) "__code__")
-           (get-args
-            (get-code
-             (eval `(. hy core language ~(HySymbol sym) __code__ co_filename))
-             (eval `(. hy core language ~(HySymbol sym) __code__ co_firstlineno))))
-           "unknown args"))
-        (eval `(. hy core language ~(HySymbol sym) __doc__))
-        (if (hasattr (eval `(. hy core language ~(HySymbol sym))) "__code__")
-          (eval `(. hy core language ~(HySymbol sym) __code__ co_filename))
-          "no code")
-        (if (hasattr (eval `(. hy core language ~(HySymbol sym))) "__code__")
-          (eval `(. hy core language ~(HySymbol sym) __code__ co_firstlineno))
-          -1))]
-
-   [(in sym (hy-shadow-keywords))
-    (,  (.format "({0} {1})"
-                 sym
-                 (get-args
-                  (get-code
-                   (eval `(. hy core shadow ~(HySymbol sym) __code__ co_filename))
-                   (eval `(. hy core shadow ~(HySymbol sym) __code__ co_firstlineno)))))
-        (eval `(. hy core shadow ~(HySymbol sym) __doc__))
-        (eval `(. hy core shadow ~(HySymbol sym) __code__ co_filename))
-        (eval `(. hy core shadow ~(HySymbol sym) __code__ co_firstlineno)))]
-
-   [(in sym (hy-macro-keywords))
-    (, (.format
-        "({0} {1})"
-        sym
-        (get-args
-         (get-code
-          ;; (eval `(. (get hy.macros._hy_macros nil ~(string sym))
-          ;; func_code co_filename)) ugg.. I want hy to avoid this kind
-          ;; of stuff!!! I cannot figure out how to make this work
-          ;; without a macro. Unfortunately macros are causing some
-          ;; other issue with hyldoc when I use require. So I am trying
-          ;; to get this function approach to work.
-          (eval
-           (read-str
-            (string
-             (.format
-              "(. (get hy.macros._hy_macros nil \"{0}\") func_code co_filename)"
-              sym))))
-
-          ;; (eval `(. (get hy.macros._hy_macros nil ~(string sym)) func_code co_firstlineno))
-          (eval
-           (read-str
-            (string (.format
-                     "(. (get hy.macros._hy_macros nil \"{0}\") func_code co_firstlineno)"
-                     sym)))))))
-
-       (eval
-        (read-str (string
-                   (.format
-                    "(. (get hy.macros._hy_macros nil \"{0}\") __doc__)"
-                    sym))))
-       (eval
-        (read-str (string
-                   (.format
-                    "(. (get hy.macros._hy_macros nil \"{0}\") func_code co_filename)"
-                    sym))))
-
-       (eval (read-str (string (.format
-                                "(. (get hy.macros._hy_macros nil \"{0}\") func_code co_firstlineno)"
-                                sym)))))]
-
-   ;; Things like cut
-   [(in sym (.keys (hy-compiler-keywords)))
-    (, (.format "{0} defined in hy/compiler" sym)
-       "No docstring available."
-       (get (get (hy-compiler-keywords) sym) 0)
-       (get (get (hy-compiler-keywords) sym) 1))]
-
-   ;; Something that has a name attribute
-   [(= (. (type (HySymbol (.replace (string sym) "-" "_"))) __name__)
-       "builtin_function_or_method")
-    (, sym
-       (. (HySymbol sym) __doc__)
-       nil
-       nil)]
-
-   ;; Not found. Maybe a regular symbol from hy? or a python func?
-   [(let [SYM (HySymbol (.replace (string sym) "-" "_"))]
-      (and (hasattr SYM "__doc__")
-           (hasattr SYM "co_filename")
-           (hasattr SYM "co_firstlineno")))
-    (let [SYM (HySymbol (.replace (string sym) "-" "_"))]
-      (, (.format "{0} not found." sym)
-         (. SYM __doc__)
-         (. SYM func_code co_filename)
-         (. SYM func_code co_firstlineno)))]
-
-   [true (, (.format "{0} not found." sym) "Not Found" nil nil)]))
+;; * Get the docstring
+(defmacro getdoc [sym]
+  "Get the docstring for the symbol SYM."
+  `(pydoc.getdoc (get-python-object ~sym)))
 
 
-(defn get-code [fname lineno]
-  "Extract the code for the sexp in FNAME after LINENO."
-  (when (and fname lineno)
-    ;; first we get the line right before the function.
-    (with [f (open fname)]
-          (for [i (range (- lineno 1))]
-            (.readline f))
-          (setv state 0
-                in-string False
-                in-comment False
-                s "("
-                j 0
-                ch ""
-                pch "")
-
-          ;; get to function start by reading forward to a (
-          (while True
-            (setv pch ch
-                  ch (.read f 1))
-            (when (= ch "(")
-              (setv state 1)
-              (break)))
-
-          ;; now we read to the end closing ).
-          (while (and (not (= 0 state)))
-            (setv ch (.read f 1))
-            (+= s ch)
-            (cond
-             ;; check for in -string, but not escaped "
-             ;; we do not consider comments. () in comments will break this.
-             [(and (not (= pch "\\")) (= ch "\""))
-              (setv in-string (not in-string))]
-             ;; comment line
-             [(and (not in-string) (not (= pch "\\")) (= ch ";"))
-              (setv in-comment True)]
-             ;; break out of comment
-             [(and in-comment (= ch "\n"))
-              (setv in-comment False)]
-             [(and (not in-string) (not in-comment) (= ch ")"))
-              (setv state (- state 1))]
-             [(and (not in-string) (not in-comment) (= ch "("))
-              (+= state 1)]))
-          s)))
+;; * Source files where symbols are defined
+(defmacro getsourcefile [sym]
+  "Return the source file where symbol SYM is defined."
+  `(do
+    (import inspect)
+    (inspect.getsourcefile (get-python-object ~sym))))
 
 
-(defn get-args [code-string]
-  "Parse the args out of the CODE-STRING."
-  (when code-string
-    (let [state 0
-          in-string False
-          i 0
-          args "["]
-      (while True
-        (setv ch (get code-string i))
-        (when (= "[" ch)
-          (setv state 1)
-          (break))
-        (+= i 1))
-
-      (while (not (= 0 state))
-        (+= i 1)
-        (setv ch (get code-string i))
-        (+= args ch)
-        (cond
-         [(and (= ch "[") (not in-string))
-          (+= state 1)]
-         [(and (= ch "]") (not in-string))
-          (-= state 1)]))
-      (setv args (.replace args "\n" ""))
-      (setv args (re.sub " +" " " args))
-      ;; cut off leading and trailing []
-      (cut args 1 -1))))
+;; * Linenumbers of objects in files
+(defmacro getlineno [sym]
+  "Return the first line number where SYM is defined.
+SYM should be a function or module."
+  `(do
+    (cond
+     [(inspect.isfunction (get-python-object ~sym))
+      (getattr (. (get-python-object ~sym) func_code) "co_firstlineno")]
+     ;; For modules we return first line
+     [(inspect.ismodule (get-python-object ~sym))
+      1]
+     ;; We don't know what this is
+     [true
+      nil])))
 
 
-;; I found the macro is necessary for this to work with hylp-indo-f. I don't
-;; fully understand why.
+;; * Args of functions
+(defmacro getargs [sym]
+  "Return a string representing the args."
+  ;; inspect.getargspec(func)
 
-;; (defmacro ? [sym]
-;;   "Return help for SYM which is a string."
-;;   `(let [flds (hylp-info ~sym)]
-;;      (.format "Usage: {0}
+  ;; Get the names and default values of a Python function’s arguments. A tuple
+  ;; of four things is returned: (args, varargs, keywords, defaults). args is a
+  ;; list of the argument names (it may contain nested lists). varargs and
+  ;; keywords are the names of the * and ** arguments or None. defaults is a
+  ;; tuple of default argument values or None if there are no default arguments
+  ;; if this tuple has n elements, they correspond to the last n elements listed
+  ;; in args.
 
-;; {1}
+  `(do
+    (import inspect)
+    (let [argspec (inspect.getargspec (get-python-object ~sym))
+          args (. argspec args)
+          varargs (. argspec varargs)
+          keywords (. argspec keywords)
+          defaults (. argspec defaults)]
 
-;; [[{2}::{3}]]
+      ;; default values are in argspec.defaults and the correspond to the last n
+      ;; variables in args. So if there are defaults, we should reverse args,
+      ;; and replace them with [arg value]
+      (when defaults
+        (setv args (list (reversed args)))
+        (for [ (, i value) (enumerate defaults)]
+          (assoc args i (.format "[{0} ({1})]" (get args i) value)))
+        (setv args (list (reversed args))))
 
-;; "
-;;               (get flds 0) ;; Usage
-;;               (get flds 1) ;; docstring
-;;               (get flds 2) ;; file
-;;               (get flds 3) ;; lineno
-;;               )))
-
-(defn ? [sym]
-  "Return help for SYM which is a string."
-  (let [flds (hylp-info-f sym)]
-    (.format "Usage: {0}
-
-{1}
-
-[[{2}::{3}]]
-
-"
-             (get flds 0)  ;; Usage
-             (get flds 1)  ;; docstring
-             (get flds 2)  ;; file
-             (get flds 3)  ;; lineno
-             )))
-
-
-;; This function version works because of a lot of eval stuff in hylp-info-f
-(defn hyldoc [sym]
-  "Return an eldoc style string for the string SYM."
-  (try
-   (get (hylp-info-f sym) 0)
-   (except [e Exception]
-     "")))
+      (.format "{0}{1}{2}"
+               (.join " " (or args '("")))
+               (if varargs (.format " [&rest {0}]" varargs) "")
+               (if keywords (.format " [&kwargs {0}]" keywords) "") ))))
 
 
-(defn hyspy-file-lineno [sym]
-  "Return filename and line number where sym is defined as an org-mode link."
-  (let [info (hylp-info-f sym)]
-    (.format "[[{0}::{1}]]" (get info 2) (get info 3))))
+;; * hyldoc
+(defmacro get-org-link [sym]
+  "Return an org-mode link to the file location where SYM is defined."
+  `(.format "[[{0}::{1}]]"
+            (getsourcefile  ~(get-python-object sym))
+            (getlineno  ~(get-python-object sym))))
+
+
+(defmacro hylp [sym]
+  "Return help string for the symbol SYM."
+  `(do
+    (require hy)
+    (.format "{0} defined in {1}
+
+  ({0} {2})
+
+{3}" ~(name sym) (get-org-link ~sym) (getargs ~sym) (getdoc ~sym))))
+
+
+(defmacro hyldoc-1 [sym]
+  "Return an eldoc string for lispy C-1 for the symbol SYM."
+  `(.format "({0} {1})" ~(name sym) (getargs ~sym)))
