@@ -64,20 +64,31 @@
 If SYM has a . in it, e.g. numpy.sum, import numpy.
 This is so we can get docstrings on symbols in hy code in an
 editor where the whole import sequence may not be executed in
-the repl. There could be side effects from this macro."
+the repl. There could be side effects from this macro if importing
+does some action."
   `(do
     (import hy)
     (cond
-     ;; We catch these cases before we do anything.
-     ;; the base is already in our namespace do nothing.
+     ;; We catch these cases before we do anything. the base is already in our
+     ;; namespace do nothing.
+
+     ;; this is a .name that is an attribute of the next item in the expression.
+     ;; We can't do anything with this.
+     [(= "." ~(get (name sym) 0))
+      nil]
+
+     ;; this is module.sym of some kind already in the namespace. No need to do
+     ;; anything.
      [(in ~(get (.split (name sym) ".") 0) (.keys (globals)))
       nil]
+
      ;; A hy symbol we know about. we don't need to do anything.
      [(in ~(name sym) (+ (hy-compiler-keywords)
                          (hy-macro-keywords)
                          (hy-shadow-keywords)
                          (hy-language-keywords)))
       nil]
+
      ;; A dotted name where the base is not in the namespace. Try importing.
      [(and (in "." ~(name sym))
            (not (in ~(get (.split (name sym) ".") 0) (.keys (globals)))))
@@ -86,16 +97,13 @@ the repl. There could be side effects from this macro."
         (import ~(hy.models.symbol.HySymbol
                   (get (.split (name sym) ".") 0)))
         (print "imported " ~(get (.split (name sym) ".") 0)))
-       (except [e ImportError] (print e)))]
-     ;; Don't do anything at the end.
-     [true
-      nil])))
+       (except [e ImportError] (print e)))])))
 
 
 (defmacro get-python-object [sym]
   "Get the Python object for the symbol SYM.
 SYM is a function or module.
-If SYM has a . in it, import the base module."
+If SYM has a . in it, import the base module, unless the dot is the first character. We can't get these yet."
   `(do
     (do-import ~sym)
     (try
@@ -121,7 +129,9 @@ If SYM has a . in it, import the base module."
   "Return the source file where symbol SYM is defined."
   `(do
     (import inspect)
-    (inspect.getsourcefile (get-python-object ~sym))))
+    (try
+     (inspect.getsourcefile (get-python-object ~sym))
+     (except [e TypeError] "built-in class"))))
 
 
 ;; * Linenumbers of objects in files
@@ -160,25 +170,27 @@ SYM should be a function or module."
 
   `(do
     (import inspect)
-    (let [argspec (inspect.getargspec (get-python-object ~sym))
-          args (. argspec args)
-          varargs (. argspec varargs)
-          keywords (. argspec keywords)
-          defaults (. argspec defaults)]
+    (try
+     (let [argspec (inspect.getargspec (get-python-object ~sym))
+           args (. argspec args)
+           varargs (. argspec varargs)
+           keywords (. argspec keywords)
+           defaults (. argspec defaults)]
 
-      ;; default values are in argspec.defaults and the correspond to the last n
-      ;; variables in args. So if there are defaults, we should reverse args,
-      ;; and replace them with [arg value]
-      (when defaults
-        (setv args (list (reversed args)))
-        (for [ (, i value) (enumerate defaults)]
-          (assoc args i (.format "[{0} ({1})]" (get args i) value)))
-        (setv args (list (reversed args))))
+       ;; default values are in argspec.defaults and the correspond to the last n
+       ;; variables in args. So if there are defaults, we should reverse args,
+       ;; and replace them with [arg value]
+       (when defaults
+         (setv args (list (reversed args)))
+         (for [ (, i value) (enumerate defaults)]
+           (assoc args i (.format "[{0} ({1})]" (get args i) value)))
+         (setv args (list (reversed args))))
 
-      (.format "{0}{1}{2}"
-               (.join " " (or args '("")))
-               (if varargs (.format " [&rest {0}]" varargs) "")
-               (if keywords (.format " [&kwargs {0}]" keywords) "") ))))
+       (.format "{0}{1}{2}"
+                (.join " " (or args '("")))
+                (if varargs (.format " [&rest {0}]" varargs) "")
+                (if keywords (.format " [&kwargs {0}]" keywords) "")))
+     (except [e TypeError] "[Args not accessible by inspect]"))))
 
 
 ;; * hyldoc
@@ -202,8 +214,5 @@ SYM should be a function or module."
 
 (defmacro ? [sym]
   "Return an eldoc string for lispy C-1 for the symbol SYM."
-  ;; `(try
-  ;;   (.format "({0} {1})" ~(name sym) (getargs ~sym))
-  ;;   (except [e Exception]
-  ;;     (.format "{} not found." ~(name sym))))
-  `(.format "({0} {1})" ~(name sym) (getargs ~sym)))
+  (let [args (getargs sym)]
+    `(.format "({0} {1})" ~(name sym) ~args)))
