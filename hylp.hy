@@ -40,7 +40,9 @@
 
 (defn hy-macro-keywords []
   "Return list of macro keywords"
-  (.keys (get hy.macros._hy_macros nil)))
+  (+ (.keys (get hy.macros._hy_macros nil))
+     (.keys (get hy.macros._hy_macros "__main__"))
+     (.keys (get hy.macros._hy_macros "__console__"))))
 
 
 (defn hy-compiler-keywords []
@@ -49,14 +51,63 @@
              (string? (get x 0))))
 
 
+(defmacro hy? [sym]
+  "Is SYM defined in hy?"
+  `(in ~(name sym) (+ (hy-compiler-keywords)
+                      (hy-macro-keywords)
+                      (hy-shadow-keywords)
+                      (hy-language-keywords))))
+
+
+(defmacro do-import [sym]
+  "Import the base module of SYM.
+If SYM has a . in it, e.g. numpy.sum, import numpy.
+This is so we can get docstrings on symbols in hy code in an
+editor where the whole import sequence may not be executed in
+the repl. There could be side effects from this macro."
+  `(do
+    (import hy)
+    (cond
+     ;; We catch these cases before we do anything.
+     ;; the base is already in our namespace do nothing.
+     [(in ~(get (.split (name sym) ".") 0) (.keys (globals)))
+      nil]
+     ;; A hy symbol we know about. we don't need to do anything.
+     [(in ~(name sym) (+ (hy-compiler-keywords)
+                         (hy-macro-keywords)
+                         (hy-shadow-keywords)
+                         (hy-language-keywords)))
+      nil]
+     ;; A dotted name where the base is not in the namespace. Try importing.
+     [(and (in "." ~(name sym))
+           (not (in ~(get (.split (name sym) ".") 0) (.keys (globals)))))
+      (try
+       (do
+        (import ~(hy.models.symbol.HySymbol
+                  (get (.split (name sym) ".") 0)))
+        (print "imported " ~(get (.split (name sym) ".") 0)))
+       (except [e ImportError] (print e)))]
+     ;; Don't do anything at the end.
+     [true
+      nil])))
+
+
 (defmacro get-python-object [sym]
-  "Get the Python object for the symbol SYM."
-  `(or (->> false
-            (.get hy.compiler._compile_table '~sym)
-            (.get (get hy.macros._hy_macros nil) '~sym)
-            (.get hy.core.shadow.__dict__ '~sym)
-            (.get hy.core.language.__dict__ '~sym))
-       (eval '~sym)))
+  "Get the Python object for the symbol SYM.
+SYM is a function or module.
+If SYM has a . in it, import the base module."
+  `(do
+    (do-import ~sym)
+    (try
+     (or (->> false
+              (.get hy.compiler._compile_table '~sym)
+              (.get (get hy.macros._hy_macros nil) '~sym)
+              (.get (get hy.macros._hy_macros "__main__") '~sym)
+              (.get (get hy.macros._hy_macros "__console__") '~sym)
+              (.get hy.core.shadow.__dict__ '~sym)
+              (.get hy.core.language.__dict__ '~sym))
+         ~sym)
+     (except [e NameError] None))))
 
 
 ;; * Get the docstring
@@ -79,6 +130,11 @@
 SYM should be a function or module."
   `(do
     (cond
+     ;; special case for compiler functions because the function is checker, not
+     ;; the one we want. we store __hylineno__ in the checkarg decorator.
+     [(and (.get hy.compiler._compile_table '~sym)
+           (hasattr (.get hy.compiler._compile_table '~sym) "__hylineno__"))
+      (. (.get hy.compiler._compile_table '~sym) __hylineno__)]
      [(inspect.isfunction (get-python-object ~sym))
       (getattr (. (get-python-object ~sym) func_code) "co_firstlineno")]
      ;; For modules we return first line
@@ -129,11 +185,11 @@ SYM should be a function or module."
 (defmacro get-org-link [sym]
   "Return an org-mode link to the file location where SYM is defined."
   `(.format "[[{0}::{1}]]"
-            (getsourcefile  ~(get-python-object sym))
-            (getlineno  ~(get-python-object sym))))
+            (getsourcefile ~(get-python-object sym))
+            (getlineno ~(get-python-object sym))))
 
 
-(defmacro hylp [sym]
+(defmacro ?? [sym]
   "Return help string for the symbol SYM."
   `(do
     (require hy)
@@ -144,6 +200,10 @@ SYM should be a function or module."
 {3}" ~(name sym) (get-org-link ~sym) (getargs ~sym) (getdoc ~sym))))
 
 
-(defmacro hyldoc-1 [sym]
+(defmacro ? [sym]
   "Return an eldoc string for lispy C-1 for the symbol SYM."
+  ;; `(try
+  ;;   (.format "({0} {1})" ~(name sym) (getargs ~sym))
+  ;;   (except [e Exception]
+  ;;     (.format "{} not found." ~(name sym))))
   `(.format "({0} {1})" ~(name sym) (getargs ~sym)))
