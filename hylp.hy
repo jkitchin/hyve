@@ -214,5 +214,4 @@ SYM should be a function or module."
 
 (defmacro ? [sym]
   "Return an eldoc string for lispy C-1 for the symbol SYM."
-  (let [args (getargs sym)]
-    `(.format "({0} {1})" ~(name sym) ~args)))
+  `(.format "({0} {1})" ~(name sym) (getargs ~sym)))
