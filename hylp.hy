@@ -51,6 +51,27 @@
              (string? (get x 0))))
 
 
+(defn hy-all-keywords [&optional [sort true]]
+  "Return a list of all keywords (sorted by default)."
+  (let [keywords (+ (hy-language-keywords)
+                    (hy-shadow-keywords)
+                    (hy-macro-keywords)
+                    (hy-compiler-keywords))]
+    (when sort
+      (setv keywords (sorted keywords)))
+    (list-comp (str x) [x keywords])))
+
+
+(defn hy-all-keywords-emacs-completion []
+  "Return a string for Emacs completion suitable for read in Emacs.
+We unmangle the names and replace _ with -."
+  (str
+   (+ "("
+      (.join " " (list-comp (.format "\"{}\"" (.replace x "_" "-"))
+                            [x (hy-all-keywords)]))
+      ")")))
+
+
 (defmacro hy? [sym]
   "Is SYM defined in hy?"
   `(in ~(name sym) (+ (hy-compiler-keywords)
@@ -69,7 +90,7 @@ does some action."
   `(do
     (import hy)
     (cond
-     ;; We catch these cases before we do anything. the base is already in our
+     ;; We catch these cases before we do anything. The base is already in our
      ;; namespace do nothing.
 
      ;; this is a .name that is an attribute of the next item in the expression.
