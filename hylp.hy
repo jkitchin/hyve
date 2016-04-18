@@ -112,8 +112,9 @@ If SYM has a . in it, import the base module, unless the dot is the first charac
               (.get (get hy.macros._hy_macros nil) '~sym)
               (.get (get hy.macros._hy_macros "__main__") '~sym)
               (.get (get hy.macros._hy_macros "__console__") '~sym)
-              (.get (vars hy.core.shadow) '~sym)
-              (.get (vars hy.core.language) '~sym)))
+              (.get hy.core.shadow.__dict__ '~sym)
+              (.get hy.core.language.__dict__ '~sym))
+         ~sym)
      (except [e NameError] None))))
 
 
