@@ -201,6 +201,11 @@ SYM should be a function or module."
             (getlineno ~(get-python-object sym))))
 
 
+(defmacro ? [sym]
+  "Return an eldoc string for lispy C-1 for the symbol SYM."
+  `(.format "({0} {1})" ~(name sym) (getargs ~sym)))
+
+
 (defmacro ?? [sym]
   "Return help string for the symbol SYM."
   `(do
@@ -210,8 +215,3 @@ SYM should be a function or module."
   ({0} {2})
 
 {3}" ~(name sym) (get-org-link ~sym) (getargs ~sym) (getdoc ~sym))))
-
-
-(defmacro ? [sym]
-  "Return an eldoc string for lispy C-1 for the symbol SYM."
-  `(.format "({0} {1})" ~(name sym) (getargs ~sym)))
